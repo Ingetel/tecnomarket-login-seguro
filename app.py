@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, session, url_for
 import time
 import os
+import re
 import psycopg2
 from werkzeug.security import check_password_hash
 
@@ -15,6 +16,7 @@ app.config.update(
 
 MAX_INTENTOS = 3
 BLOQUEO_SEG = 60
+CAMPOS_ESPERADOS = {"correo", "password"}
 
 
 def get_db():
@@ -24,6 +26,26 @@ def get_db():
         raise RuntimeError("No se encontró la variable DATABASE_URL.")
 
     return psycopg2.connect(database_url, sslmode="require")
+
+
+def validar_entrada(correo, password):
+    if not correo or not password:
+        return False
+
+    if len(correo) > 100 or len(password) > 100:
+        return False
+
+    patron_correo = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+
+    if not re.match(patron_correo, correo):
+        return False
+
+    return True
+
+
+def solicitud_esperada():
+    campos_recibidos = set(request.form.keys())
+    return campos_recibidos.issubset(CAMPOS_ESPERADOS)
 
 
 def buscar_usuario(correo):
@@ -66,18 +88,31 @@ def index():
     return render_template("login.html")
 
 
-@app.route("/login", methods=["POST"])
+@app.route("/login", methods=["GET", "POST"])
 def login():
+    mensaje_error = "Credenciales inválidas."
+
+    # Si alguien abre /login directamente desde el navegador,
+    # se redirige al formulario. El procesamiento real solo ocurre por POST.
+    if request.method == "GET":
+        return redirect(url_for("index"))
+
+    # Procesa únicamente los campos esperados del formulario.
+    if not solicitud_esperada():
+        time.sleep(1)
+        return render_template("login.html", error=mensaje_error)
+
     correo = request.form.get("correo", "").strip().lower()
     password = request.form.get("password", "").strip()
 
-    mensaje_error = "Credenciales inválidas."
-
-    if not correo or not password:
+    # Validación de entradas.
+    if not validar_entrada(correo, password):
+        time.sleep(1)
         return render_template("login.html", error=mensaje_error)
 
     user = buscar_usuario(correo)
 
+    # Mensaje genérico: no revela si el correo existe o no.
     if not user:
         time.sleep(1)
         return render_template("login.html", error=mensaje_error)
@@ -85,17 +120,19 @@ def login():
     user_id, correo_db, pass_hash, intentos, bloqueado_hasta = user
     ahora = int(time.time())
 
+    # Control contra fuerza bruta: bloqueo temporal.
+    # Se mantiene un mensaje genérico para no revelar información sensible.
     if bloqueado_hasta and ahora < bloqueado_hasta:
-        return render_template(
-            "login.html",
-            error="Credenciales inválidas. Intente nuevamente más tarde."
-        )
+        time.sleep(1)
+        return render_template("login.html", error=mensaje_error)
 
+    # Credenciales correctas.
     if check_password_hash(pass_hash, password):
         actualizar_intentos(user_id, 0, 0)
         session["usuario"] = correo_db
         return redirect(url_for("panel"))
 
+    # Credenciales incorrectas: aumenta contador de intentos.
     intentos += 1
     bloqueo = 0
 
