@@ -1,0 +1,26 @@
+# Base de datos local
+usuarios.db
+*.db
+
+# Archivos de prueba o revisión interna
+ver_db.py
+
+# Certificados o claves locales
+ssl/
+*.pem
+*.key
+
+# Variables de entorno
+.env
+
+# Archivos generados por Python
+__pycache__/
+*.pyc
+
+# Entornos virtuales
+venv/
+.venv/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
