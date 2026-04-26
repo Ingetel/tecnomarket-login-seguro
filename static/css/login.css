@@ -33,3 +33,14 @@ background:#00ff41;
 border:none;
 font-weight:bold;
 }
+.mensaje-error {
+    margin-top: 12px;
+    margin-bottom: 12px;
+    padding: 10px;
+    background-color: rgba(255, 0, 0, 0.12);
+    border: 1px solid #ff4d4d;
+    color: #ff6b6b;
+    border-radius: 8px;
+    font-size: 14px;
+    text-align: center;
+}
