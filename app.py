@@ -1,19 +1,29 @@
-from flask import Flask, render_template, request, redirect, session
-import sqlite3
+from flask import Flask, render_template, request, redirect, session, url_for
 import time
 import os
-from werkzeug.security import generate_password_hash, check_password_hash
+import psycopg2
+from werkzeug.security import check_password_hash
 
 app = Flask(__name__)
-app.secret_key = "tecnomarket_secret_key"
 
-DB = os.path.join(os.path.dirname(__file__), "usuarios.db")
+app.secret_key = os.environ.get("SECRET_KEY", "tecnomarket_secret_key")
+
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax"
+)
+
 MAX_INTENTOS = 3
 BLOQUEO_SEG = 60
 
 
 def get_db():
-    return sqlite3.connect(DB)
+    database_url = os.environ.get("DATABASE_URL")
+
+    if not database_url:
+        raise RuntimeError("No se encontró la variable DATABASE_URL.")
+
+    return psycopg2.connect(database_url, sslmode="require")
 
 
 def buscar_usuario(correo):
@@ -23,11 +33,14 @@ def buscar_usuario(correo):
     cur.execute("""
         SELECT id, correo, password_hash, intentos, bloqueado_hasta
         FROM usuarios
-        WHERE correo = ?
+        WHERE correo = %s
     """, (correo,))
 
     row = cur.fetchone()
+
+    cur.close()
     conn.close()
+
     return row
 
 
@@ -37,11 +50,14 @@ def actualizar_intentos(user_id, intentos, bloqueo):
 
     cur.execute("""
         UPDATE usuarios
-        SET intentos=?, bloqueado_hasta=?
-        WHERE id=?
+        SET intentos = %s,
+            bloqueado_hasta = %s
+        WHERE id = %s
     """, (intentos, bloqueo, user_id))
 
     conn.commit()
+
+    cur.close()
     conn.close()
 
 
@@ -52,49 +68,52 @@ def index():
 
 @app.route("/login", methods=["POST"])
 def login():
-
     correo = request.form.get("correo", "").strip().lower()
     password = request.form.get("password", "").strip()
 
+    mensaje_error = "Credenciales inválidas."
+
     if not correo or not password:
-        return "Credenciales inválidas"
+        return render_template("login.html", error=mensaje_error)
 
     user = buscar_usuario(correo)
 
     if not user:
         time.sleep(1)
-        return "Credenciales inválidas"
+        return render_template("login.html", error=mensaje_error)
 
-    user_id, _, pass_hash, intentos, bloqueado_hasta = user
+    user_id, correo_db, pass_hash, intentos, bloqueado_hasta = user
     ahora = int(time.time())
 
     if bloqueado_hasta and ahora < bloqueado_hasta:
-        return "Cuenta bloqueada temporalmente"
+        return render_template(
+            "login.html",
+            error="Credenciales inválidas. Intente nuevamente más tarde."
+        )
 
     if check_password_hash(pass_hash, password):
-
         actualizar_intentos(user_id, 0, 0)
-        session["usuario"] = correo
-        return redirect("/panel")
+        session["usuario"] = correo_db
+        return redirect(url_for("panel"))
 
-    else:
-        intentos += 1
-        bloqueo = 0
+    intentos += 1
+    bloqueo = 0
 
-        if intentos >= MAX_INTENTOS:
-            bloqueo = ahora + BLOQUEO_SEG
-            intentos = 0
+    if intentos >= MAX_INTENTOS:
+        bloqueo = ahora + BLOQUEO_SEG
+        intentos = 0
 
-        actualizar_intentos(user_id, intentos, bloqueo)
+    actualizar_intentos(user_id, intentos, bloqueo)
 
-        time.sleep(1)
-        return "Credenciales inválidas"
+    time.sleep(1)
+    return render_template("login.html", error=mensaje_error)
 
 
 @app.route("/panel")
 def panel():
     if "usuario" not in session:
-        return redirect("/")
+        return redirect(url_for("index"))
+
     return """
 <!DOCTYPE html>
 <html lang='es'>
@@ -135,12 +154,18 @@ border-radius:8px;
 <div class='box'>
 <h1>Bienvenido a TecnoMarket</h1>
 <p>Acceso autorizado</p>
-<a href='/'>Cerrar sesión</a>
+<a href='/logout'>Cerrar sesión</a>
 </div>
 </body>
 </html>
 """
 
 
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("index"))
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
