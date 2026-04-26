@@ -1,11 +1,12 @@
 import sqlite3
-from werkzeug.security import generate_password_hash
 
-conn = sqlite3.connect("usuarios.db")
+DB_NAME = "usuarios.db"
+
+conn = sqlite3.connect(DB_NAME)
 cur = conn.cursor()
 
 cur.execute("""
-CREATE TABLE usuarios (
+CREATE TABLE IF NOT EXISTS usuarios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     correo TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
@@ -14,14 +15,7 @@ CREATE TABLE usuarios (
 )
 """)
 
-clave = generate_password_hash("12345678")
-
-cur.execute("""
-INSERT INTO usuarios (correo, password_hash)
-VALUES (?, ?)
-""", ("admin@tecnomarket.com", clave))
-
 conn.commit()
 conn.close()
 
-print("BD creada correctamente")
+print("BD creada correctamente.")
